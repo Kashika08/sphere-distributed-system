@@ -240,7 +240,7 @@ void streamPodMetrics(Producer& producer, int intervalSeconds) {
         // --- Build and send combined message ---
         std::string timestamp = getCurrentTimestamp();
         std::ostringstream val;
-        val << "PRODUCER | LOG_TIME | " << timestamp
+        val << "LOG_TIME | " << timestamp
             << " | Pod: front-end"
             << ", CPU: " << std::fixed << std::setprecision(2) << avgCpuPct << "%"
             << ", Memory: " << std::fixed << std::setprecision(6) << avgMemPct << "%";
