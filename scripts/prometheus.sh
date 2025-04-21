@@ -1,1 +1,1 @@
-kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090
+nohup kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090 &

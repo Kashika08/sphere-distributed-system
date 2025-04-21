@@ -202,15 +202,18 @@ void streamPodMetrics(Producer& producer, int intervalSeconds) {
 
         // --- CPU: query Prometheus for per-pod cores, then average ---
         auto coreVals = queryPrometheusMulti(CPU_QUERY);
-        double avgCores = 0.0;
+        double sumCores = 0.0;
         if (!coreVals.empty()) {
             double sum = 0.0;
-            for (auto c : coreVals) sum += c;
-            avgCores = sum / coreVals.size();
+            for (auto c : coreVals) sumCores += c;
+            sumCores *= 1000;
         }
         double avgCpuPct = cpuLimitCores > 0.0
-            ? (avgCores / cpuLimitCores) * 100.0
+            ? (sumCores / cpuLimitMilli) * 100.0
             : 0.0;
+        
+        // std::cout << "sumCores: " << sumCores << std::endl;
+        // std::cout << "avgCpuPct: " << avgCpuPct << "\tcpuLimitMilli: " << cpuLimitMilli << "\tcpuLimitCores: " << cpuLimitCores << std::endl;
 
         // --- Memory: kubectl top --- 
         FILE* pipe = popen(topCmd.c_str(), "r");
