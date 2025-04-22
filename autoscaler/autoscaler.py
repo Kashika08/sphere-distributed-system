@@ -11,17 +11,18 @@ CPU_BUFFER = 10.0       # Safety margin to avoid flapping
 
 MAX_REPLICAS = 4
 MIN_REPLICAS = 1
-COOLDOWN_SECONDS = 150  # Cooldown period in seconds
 
 REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 NAMESPACE = 'sock-shop'
 DEPLOYMENT = 'front-end'
 
-UPSCALE_COOLDOWN_KEY = f'scale_triggered:{DEPLOYMENT}'
-DOWNSCALE_COOLDOWN_KEY = f'downscale_triggered:{DEPLOYMENT}'
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
 
-# --- Redis Setup ---
 rdb = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 # --- Utility Functions ---
@@ -59,8 +60,10 @@ def scale_replicas(target):
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to scale deployment: {e.stderr or e}")
 
-def is_in_cooldown(key):
-    return rdb.exists(key)
+def loud_log(message, color=GREEN):
+    print(f"{'='*50}")
+    print(f"{BOLD}{color}{message}{RESET}")
+    print(f"{'='*50}\n")
 
 # --- Main Scaling Logic ---
 def process_prediction(key):
@@ -94,12 +97,8 @@ def process_prediction(key):
         required_replicas = min(required_replicas, MAX_REPLICAS)
 
         if required_replicas > current_replicas:
-            if not is_in_cooldown(UPSCALE_COOLDOWN_KEY):
-                print(f"🔼 Scaling up to {required_replicas}")
-                scale_replicas(required_replicas)
-                rdb.setex(UPSCALE_COOLDOWN_KEY, COOLDOWN_SECONDS, 1)
-            else:
-                print("⏳ Upscale cooldown active")
+            loud_log(f"🔼 SCALING UP to {required_replicas} replicas!")
+            scale_replicas(required_replicas)
         else:
             print("🟰 Already at or above required replicas")
 
@@ -108,12 +107,8 @@ def process_prediction(key):
         proposed_replicas = max(current_replicas - 1, MIN_REPLICAS)
 
         if proposed_replicas < current_replicas:
-            if not is_in_cooldown(DOWNSCALE_COOLDOWN_KEY):
-                print(f"🔽 Scaling down to {proposed_replicas}")
-                scale_replicas(proposed_replicas)
-                rdb.setex(DOWNSCALE_COOLDOWN_KEY, COOLDOWN_SECONDS, 1)
-            else:
-                print("⏳ Downscale cooldown active")
+            loud_log(f"🔽 SCALING DOWN to {proposed_replicas} replicas!", color=YELLOW)
+            scale_replicas(proposed_replicas)
         else:
             print("🟰 Already at or below target")
 
@@ -137,4 +132,3 @@ def listen_for_predictions():
 if __name__ == "__main__":
     print("✅ Autoscaler running...")
     listen_for_predictions()
-
