@@ -52,3 +52,21 @@ cd data-handling/ml-engine/metrics-consumer
 mkdir build
 bash build.sh
 ```
+
+## Redis
+### Redis Consumer (Consumer, topic :: predictions)
+```bash
+docker run -d --name redis-server -p 6379:6379 redis
+cd ~/sphere-distributed-system
+docker build -t redis-consumer -f redis-consumer/Dockerfile .
+docker run --network="host" redis-consumer
+
+docker exec -it redis-server redis-cli
+CONFIG SET notify-keyspace-events KEA
+```
+
+## Autoscaler
+```bash
+cd autoscaler
+python3 autoscaler.py
+```
