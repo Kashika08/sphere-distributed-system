@@ -1,0 +1,7 @@
+Load Test Started: 2025-04-22 03:16:56.498133
+
+2025-04-22 03:17:06 - Avg Response: 6.42ms | 95th Percentile: 10ms | Users: 5
+2025-04-22 03:17:16 - Avg Response: 6.14ms | 95th Percentile: 13ms | Users: 10
+2025-04-22 03:17:26 - Avg Response: 6.55ms | 95th Percentile: 13ms | Users: 15
+2025-04-22 03:17:36 - Avg Response: 5.92ms | 95th Percentile: 10ms | Users: 20
+2025-04-22 03:17:46 - Avg Response: 5.55ms | 95th Percentile: 9ms | Users: 25

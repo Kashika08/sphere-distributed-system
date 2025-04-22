@@ -12,6 +12,9 @@ from locust import HttpUser, task, between, LoadTestShape, events
 from datetime import datetime
 import gevent
 
+TOTAL_REQUESTS = 0
+SLOW_COUNT = 0
+
 # --- Average Response Time Logger ---
 def setup_response_time_logger(environment):
     """Background task to log average response times periodically"""
@@ -50,10 +53,7 @@ class CustomLoadShape(LoadTestShape):
         {"duration": 130, "users": 1100, "spawn_rate": 2.0},
         {"duration": 150, "users": 800, "spawn_rate": 2.0},
         {"duration": 100, "users": 1200, "spawn_rate": 4.0},
-        {"duration": 150, "users": 1600, "spawn_rate": 2.67},
-        {"duration": 200, "users": 2000, "spawn_rate": 2.0},
-        {"duration": 200, "users": 1500, "spawn_rate": 2.5},
-        {"duration": 450, "users": 700, "spawn_rate": 2.0},
+        {"duration": 250, "users": 700, "spawn_rate": 2.0},
         {"duration": 300, "users": 400, "spawn_rate": 1.0},
     ]
     total_duration = sum(stage['duration'] for stage in stages)
@@ -107,12 +107,21 @@ def on_test_start(environment, **kwargs):
 @events.test_stop.add_listener
 def on_test_stop(environment, **kwargs):
     print("Load test stopped by user interruption")
+    print(f"Total requests: {TOTAL_REQUESTS}")
+    print(f"Slow responses (>2000ms): {SLOW_COUNT}")
+    if TOTAL_REQUESTS > 0:
+        pct = round((SLOW_COUNT / TOTAL_REQUESTS) * 100, 2)
+        print(f"Percentage slow: {pct}%")
 
 @events.request.add_listener
 def on_request(request_type, name, response_time, response_length, response, context, exception, **kwargs):
+    global TOTAL_REQUESTS, SLOW_COUNT
+    TOTAL_REQUESTS += 1
     if exception:
         print(f"Request to {name} failed with exception: {exception}")
     elif response.status_code >= 400:
         print(f"Request to {name} failed with status code: {response.status_code}")
-    elif response_time > 1000:
+    elif response_time > 500:
+        SLOW_COUNT += 1
         print(f"SLOW REQUEST: {name} took {response_time}ms to complete")
+
