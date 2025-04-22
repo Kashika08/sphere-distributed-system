@@ -61,12 +61,12 @@ class WebsiteUser(HttpUser):
             if r.status_code != 200:
                 r.failure(f"Homepage failed: {r.status_code}")
 
-    @task(30)
-    def browse_category(self):
-        cat = random.choice(categories)
-        with self.client.get(f"/category.html?tags={cat}", catch_response=True) as r:
-            if r.status_code != 200:
-                r.failure(f"Category {cat} failed: {r.status_code}")
+    #@task(30)
+    #def browse_category(self):
+    #    cat = random.choice(categories)
+    #    with self.client.get(f"/category.html?tags={cat}", catch_response=True) as r:
+    #        if r.status_code != 200:
+    #            r.failure(f"Category {cat} failed: {r.status_code}")
 
 # --- Lifecycle Hooks ---
 @events.test_start.add_listener

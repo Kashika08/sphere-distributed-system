@@ -53,10 +53,7 @@ class CustomLoadShape(LoadTestShape):
         {"duration": 130, "users": 1100, "spawn_rate": 2.0},
         {"duration": 150, "users": 800, "spawn_rate": 2.0},
         {"duration": 100, "users": 1200, "spawn_rate": 4.0},
-        {"duration": 150, "users": 1600, "spawn_rate": 2.67},
-        {"duration": 200, "users": 2000, "spawn_rate": 2.0},
-        {"duration": 200, "users": 1500, "spawn_rate": 2.5},
-        {"duration": 450, "users": 700, "spawn_rate": 2.0},
+        {"duration": 250, "users": 700, "spawn_rate": 2.0},
         {"duration": 300, "users": 400, "spawn_rate": 1.0},
     ]
     total_duration = sum(stage['duration'] for stage in stages)
@@ -124,6 +121,6 @@ def on_request(request_type, name, response_time, response_length, response, con
         print(f"Request to {name} failed with exception: {exception}")
     elif response.status_code >= 400:
         print(f"Request to {name} failed with status code: {response.status_code}")
-    elif response_time > 2000:
+    elif response_time > 500:
         SLOW_COUNT += 1
         print(f"SLOW REQUEST: {name} took {response_time}ms to complete")
