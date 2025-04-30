@@ -117,7 +117,11 @@ def process_prediction(key):
                 print("⏳ Downscale cooldown active")
             else:
                 loud_log(f"🔽 SCALING DOWN to {proposed_replicas} replicas!", color=YELLOW)
+<<<<<<< HEAD
                 # scale_replicas(proposed_replicas)
+=======
+                scale_replicas(proposed_replicas)
+>>>>>>> 0487cd4d44175f4a0b89a7aab252e6ebfa39850d
                 rdb.setex(DOWNSCALE_COOLDOWN_KEY, DOWNSCALE_COOLDOWN_SECONDS, 1)
         else:
             print("🟰 Already at or below target")
@@ -142,3 +146,7 @@ def listen_for_predictions():
 if __name__ == "__main__":
     print("✅ Autoscaler running...")
     listen_for_predictions()
+<<<<<<< HEAD
+=======
+
+>>>>>>> 0487cd4d44175f4a0b89a7aab252e6ebfa39850d
