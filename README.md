@@ -18,7 +18,7 @@ docker run -p 9092:9092 apache/kafka:3.9.0
 ### Run Locust
 ```bash
 cd data-generation
-locust -f sim-locust.py --host=http://192.168.49.2:30001
+locust -f locustfile.py --host=http://192.168.49.2:30001
 ```
 
 ## Data Collection
