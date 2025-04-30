@@ -1,5 +1,12 @@
+// fetch_pod_metrics.cpp
+
 #include "../kafka/Producer/producer.h"
 #include "../kafka/Constants/constants.h"
+
+#include <curl/curl.h>
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -8,208 +15,256 @@
 #include <thread>
 #include <chrono>
 #include <regex>
+#include <vector>
+#include <iomanip>
+#include <cstdio>
 
-// Function to get current timestamp
+static constexpr char PROM_URL[] = "http://localhost:9090";
+
+// Prometheus query for per‐pod CPU usage (cores over time window)
+const std::string CPU_QUERY = 
+    "avg_over_time(sum(rate(container_cpu_usage_seconds_total"
+    "{namespace=\"sock-shop\",pod=~\"front-end.*\",container!=\"POD\"}"
+    "[40s])) by (pod)[40s:] )";
+
+// libcurl write callback
+size_t curlWrite(void* contents, size_t size, size_t nmemb, std::string* s) {
+    s->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+// Perform HTTP GET with error handling
+std::string httpGet(const std::string& url) {
+    CURL* curl = curl_easy_init();
+    std::string response;
+    if (!curl) {
+        std::cerr << "curl_easy_init() failed\n";
+        return "";
+    }
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWrite);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+
+    CURLcode res = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (res != CURLE_OK) {
+        std::cerr << "curl error (" << url << "): "
+                  << curl_easy_strerror(res) << "\n";
+        response.clear();
+    } else if (http_code != 200) {
+        std::cerr << "HTTP error (" << url << "): " << http_code << "\n";
+        response.clear();
+    }
+
+    curl_easy_cleanup(curl);
+    return response;
+}
+
+// Query Prometheus and extract ALL values (cores) per pod
+std::vector<double> queryPrometheusMulti(const std::string& promql) {
+    char* esc = curl_easy_escape(nullptr, promql.c_str(), promql.size());
+    std::string url = std::string(PROM_URL) +
+        "/api/v1/query?query=" + (esc ? esc : promql);
+    if (esc) curl_free(esc);
+
+    std::string body = httpGet(url);
+    std::vector<double> vals;
+    if (body.empty()) {
+        std::cerr << "Empty response for Prometheus query: " << promql << "\n";
+        return vals;
+    }
+
+    try {
+        auto j = json::parse(body);
+        auto& result = j["data"]["result"];
+        if (result.is_array()) {
+            for (auto& item : result) {
+                std::string v = item["value"][1];
+                try {
+                    vals.push_back(std::stod(v));
+                } catch (...) { }
+            }
+        }
+    } catch (std::exception& e) {
+        std::cerr << "JSON parse error: " << e.what() << "\n";
+    }
+    return vals;
+}
+
+// Utility: current timestamp
 std::string getCurrentTimestamp() {
     std::time_t now = std::time(nullptr);
-    char buffer[20];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
-    return std::string(buffer);
+    char buf[20];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
+    return buf;
 }
 
-// Helper function to execute a shell command and return its output as a string
-std::string execCommand(const std::string& command) {
-    const std::string tempFile = "temp_output.txt";
-    std::string fullCommand = command + " > " + tempFile;
-    system(fullCommand.c_str());
-    
-    std::ifstream file(tempFile);
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    file.close();
-    
-    std::remove(tempFile.c_str());
-    return buffer.str();
+// Utility: run shell command and capture output
+std::string execCommand(const std::string& cmd) {
+    const std::string tmp = "temp_out.txt";
+    system((cmd + " > " + tmp + " 2>&1").c_str());
+    std::ifstream f(tmp);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    f.close();
+    std::remove(tmp.c_str());
+    return ss.str();
 }
 
-// Helper function to remove non-digit characters (mimics: sed 's/[^0-9]*//g')
-std::string removeNonDigits(const std::string &input) {
-    return std::regex_replace(input, std::regex("[^0-9]"), "");
+// Strip non-digits
+std::string removeNonDigits(const std::string &in) {
+    return std::regex_replace(in, std::regex("[^0-9]"), "");
 }
 
-// Function to get CPU capacity of the front-end pod using the same logic as the bash file
+// Fetch CPU capacity (millicores)
 int getFrontEndPodCPUCapacity() {
     int podCPU = -1;
-    std::string cpuStr;
-    
-    // Try limits first
-    std::string command = "kubectl get pod -n sock-shop -l name=front-end -o jsonpath='{.items[0].spec.containers[0].resources.limits.cpu}'";
-    cpuStr = execCommand(command);
-    std::cout << "CPU limit raw: " << cpuStr << std::endl;
-    cpuStr = removeNonDigits(cpuStr);
-    
-    if (!cpuStr.empty()) {
-        try {
-            podCPU = std::stoi(cpuStr);
-        } catch (...) {
-            std::cerr << "Error parsing CPU limit value: " << cpuStr << std::endl;
-            podCPU = -1;
-        }
-    }
-    
-    // If limits are not available, try requests
+    std::string s;
+    // limits
+    s = execCommand(
+      "kubectl get pod -n sock-shop -l name=front-end "
+      "-o jsonpath='{.items[0].spec.containers[0].resources.limits.cpu}'"
+    );
+    s = removeNonDigits(s);
+    if (!s.empty()) podCPU = std::stoi(s);
+    // requests fallback
     if (podCPU <= 0) {
-        command = "kubectl get pod -n sock-shop -l name=front-end -o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}'";
-        cpuStr = execCommand(command);
-        std::cout << "CPU request raw: " << cpuStr << std::endl;
-        cpuStr = removeNonDigits(cpuStr);
-        if (!cpuStr.empty()) {
-            try {
-                podCPU = std::stoi(cpuStr);
-            } catch (...) {
-                std::cerr << "Error parsing CPU request value: " << cpuStr << std::endl;
-                podCPU = -1;
-            }
-        }
+        s = execCommand(
+          "kubectl get pod -n sock-shop -l name=front-end "
+          "-o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}'"
+        );
+        s = removeNonDigits(s);
+        if (!s.empty()) podCPU = std::stoi(s);
     }
-    
-    // If still not available, fallback to node's allocatable CPU
+    // node allocatable fallback
     if (podCPU <= 0) {
-        std::string nodeName = execCommand("kubectl get pod -n sock-shop -l name=front-end -o jsonpath='{.items[0].spec.nodeName}'");
-        // Clean node name (remove quotes or newline characters)
-        nodeName = std::regex_replace(nodeName, std::regex("['\n]"), "");
-        std::cout << "Fallback: Node name is: " << nodeName << std::endl;
-        if (!nodeName.empty()) {
-            command = "kubectl get node " + nodeName + " -o jsonpath='{.status.allocatable.cpu}'";
-            cpuStr = execCommand(command);
-            std::cout << "Node allocatable CPU raw: " << cpuStr << std::endl;
-            cpuStr = removeNonDigits(cpuStr);
-            if (!cpuStr.empty()) {
-                try {
-                    podCPU = std::stoi(cpuStr);
-                } catch (...) {
-                    std::cerr << "Error parsing node CPU value: " << cpuStr << std::endl;
-                    podCPU = 1; // Default value
-                }
-            }
+        std::string node = execCommand(
+          "kubectl get pod -n sock-shop -l name=front-end "
+          "-o jsonpath='{.items[0].spec.nodeName}'"
+        );
+        node = std::regex_replace(node, std::regex("['\n]"), "");
+        if (!node.empty()) {
+            s = execCommand(
+              "kubectl get node " + node +
+              " -o jsonpath='{.status.allocatable.cpu}'"
+            );
+            s = removeNonDigits(s);
+            if (!s.empty()) podCPU = std::stoi(s);
         }
     }
-    
-    std::cout << "Final CPU capacity value used: " << podCPU << std::endl;
-    return podCPU > 0 ? podCPU : 1;
+    return podCPU > 0 ? podCPU : 1000;
 }
 
-// Function to convert memory from Mi/Gi to Ki
-long convertMemoryToKi(const std::string &memoryStr) {
-    std::regex numberRegex(R"(\d+)");
-    std::smatch match;
-
-    if (std::regex_search(memoryStr, match, numberRegex)) {
-        long value = std::stol(match.str());
-        if (memoryStr.find("Gi") != std::string::npos)
-            return value * 1024 * 1024; // Convert Gi to Ki
-        else if (memoryStr.find("Mi") != std::string::npos)
-            return value * 1024; // Convert Mi to Ki
-        else
-            return value; // Assume it's already in Ki
+// Convert memory string to Ki
+long convertMemoryToKi(const std::string &mem) {
+    std::smatch m;
+    if (std::regex_search(mem, m, std::regex(R"(\d+)"))) {
+        long v = std::stol(m.str());
+        if (mem.find("Gi") != std::string::npos) return v * 1024LL * 1024LL;
+        if (mem.find("Mi") != std::string::npos) return v * 1024LL;
+        return v;
     }
-    return -1; // Invalid value
+    return -1;
 }
 
-// Function to get memory capacity of the front-end pod in Ki
+// Fetch memory capacity (Ki)
 long getFrontEndPodMemoryCapacity() {
-    std::string command = "kubectl get pod -n sock-shop -l name=front-end -o jsonpath='{.items[0].spec.containers[0].resources.limits.memory}'";
-    std::string memStr = execCommand(command);
-    std::cout << "Memory limit raw: " << memStr << std::endl;
-    long podMemory = convertMemoryToKi(memStr);
-    
-    // If limits not available or invalid, try requests
-    if (podMemory <= 0) {
-        command = "kubectl get pod -n sock-shop -l name=front-end -o jsonpath='{.items[0].spec.containers[0].resources.requests.memory}'";
-        memStr = execCommand(command);
-        std::cout << "Memory request raw: " << memStr << std::endl;
-        podMemory = convertMemoryToKi(memStr);
+    std::string s = execCommand(
+      "kubectl get pod -n sock-shop -l name=front-end "
+      "-o jsonpath='{.items[0].spec.containers[0].resources.limits.memory}'"
+    );
+    long ki = convertMemoryToKi(s);
+    if (ki <= 0) {
+        s = execCommand(
+          "kubectl get pod -n sock-shop -l name=front-end "
+          "-o jsonpath='{.items[0].spec.containers[0].resources.requests.memory}'"
+        );
+        ki = convertMemoryToKi(s);
     }
-    
-    return podMemory > 0 ? podMemory : 1048576; // Default to 1Gi (1024*1024 Ki) if invalid
+    return ki > 0 ? ki : 1024LL * 1024LL;
 }
 
-// Function to fetch Kubernetes pod metrics and stream them
+// Main streaming loop with combined metrics
 void streamPodMetrics(Producer& producer, int intervalSeconds) {
-    std::string command = "kubectl top pods -n sock-shop --no-headers --selector=name=front-end";
+    const std::string topCmd =
+      "kubectl top pods -n sock-shop --no-headers --selector=name=front-end";
+
     while (true) {
-        // Get the CPU and memory capacity based on pod-specific resources
-        int podCPULimit = getFrontEndPodCPUCapacity();
-        long podMemoryLimit = getFrontEndPodMemoryCapacity();
+        int cpuLimitMilli = getFrontEndPodCPUCapacity();
+        long memLimitKi   = getFrontEndPodMemoryCapacity();
+        double cpuLimitCores = cpuLimitMilli / 1000.0;
 
-        std::cout << "Front-end CPU capacity (limit): " << podCPULimit << std::endl;
-        std::cout << "Front-end Memory capacity: " << podMemoryLimit << " Ki" << std::endl;
+        // --- CPU: query Prometheus for per-pod cores, then average ---
+        auto coreVals = queryPrometheusMulti(CPU_QUERY);
+        double sumCores = 0.0;
+        if (!coreVals.empty()) {
+            double sum = 0.0;
+            for (auto c : coreVals) sumCores += c;
+            sumCores *= 1000;
+        }
+        double avgCpuPct = cpuLimitCores > 0.0
+            ? (sumCores / cpuLimitMilli) * 100.0
+            : 0.0;
+        
+        // std::cout << "sumCores: " << sumCores << std::endl;
+        // std::cout << "avgCpuPct: " << avgCpuPct << "\tcpuLimitMilli: " << cpuLimitMilli << "\tcpuLimitCores: " << cpuLimitCores << std::endl;
 
-        FILE* pipe = popen(command.c_str(), "r");
-        if (!pipe) {
-            std::cerr << "Error executing kubectl top command." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
+        // --- Memory: kubectl top --- 
+        FILE* pipe = popen(topCmd.c_str(), "r");
+        std::vector<double> memPcts;
+        if (pipe) {
+            char buf[256];
+            while (fgets(buf, sizeof(buf), pipe)) {
+                std::istringstream iss(buf);
+                std::string podName, cpuUsage, memUsage;
+                if (!(iss >> podName >> cpuUsage >> memUsage)) continue;
+                long memKiUsed = convertMemoryToKi(memUsage);
+                double memPct = memLimitKi > 0
+                    ? (memKiUsed / double(memLimitKi)) * 100.0
+                    : 0.0;
+                memPcts.push_back(memPct);
+            }
+            pclose(pipe);
         }
 
-        char buffer[256];
+        double avgMemPct = 0.0;
+        if (!memPcts.empty()) {
+            double sum = 0.0;
+            for (auto m : memPcts) sum += m;
+            avgMemPct = sum / memPcts.size();
+        }
+
+        // --- Build and send combined message ---
         std::string timestamp = getCurrentTimestamp();
+        std::ostringstream val;
+        val << "LOG_TIME | " << timestamp
+            << " | Pod: front-end"
+            << ", CPU: " << std::fixed << std::setprecision(2) << avgCpuPct << "%"
+            << ", Memory: " << std::fixed << std::setprecision(6) << avgMemPct << "%";
 
-        while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-            std::string line(buffer);
-            std::istringstream iss(line);
-            std::string podName, cpuUsage, memoryUsage;
-
-            if (!(iss >> podName >> cpuUsage >> memoryUsage)) {
-                continue;
-            }
-
-            // Extract CPU usage in millicores (strip the trailing 'm')
-            int cpuMilliCores = 0;
-            try {
-                cpuMilliCores = std::stoi(cpuUsage.substr(0, cpuUsage.find('m')));
-            } catch (...) {
-                std::cerr << "Error parsing CPU usage: " << cpuUsage << std::endl;
-                cpuMilliCores = 0;
-            }
-            
-            std::cout << "CPU usage: " << cpuMilliCores << "m, Pod CPU Limit: " << podCPULimit << std::endl;
-            // Calculate CPU percentage exactly as the bash script does
-            double cpuPercentage = (podCPULimit > 0) ? (cpuMilliCores / static_cast<double>(podCPULimit)) * 100 : 0;
-
-            // Convert memory usage (e.g., "100Mi") to Ki
-            long memoryUsedKi = convertMemoryToKi(memoryUsage);
-            if (memoryUsedKi <= 0) {
-                std::cerr << "Error converting memory usage: " << memoryUsage << std::endl;
-                memoryUsedKi = 0;
-            }
-            double memoryPercentage = (podMemoryLimit > 0) ? (memoryUsedKi / static_cast<double>(podMemoryLimit)) * 100 : 0;
-
-            // Format the message value
-            std::stringstream valueStream;
-            valueStream << "PRODUCER | LOG_TIME | " << timestamp << " | Pod: " << podName
-                        << ", CPU: " << cpuPercentage << "%, Memory: " << memoryPercentage << "%";
-            std::string value = valueStream.str();
-
-            // Send the data via Kafka
-            producer.send(podName, value);
-            std::cout << "Streaming: " << value << std::endl;
-        }
-        pclose(pipe);
+        std::string message = val.str();
+        producer.send("front-end", message);
+        std::cout << "Streaming: " << message << "\n";
 
         std::this_thread::sleep_for(std::chrono::seconds(intervalSeconds));
     }
 }
 
 int main() {
-    const std::string brokers = constants::KAFKA_HOST;
-    const Topic topic = constants::KAFKA_METRICS_TOPIC;
+    curl_global_init(CURL_GLOBAL_DEFAULT);
 
+    const std::string brokers = constants::KAFKA_HOST;
+    const Topic topic      = constants::KAFKA_METRICS_TOPIC;
     Producer producer(brokers, topic);
 
-    int intervalSeconds = 10;  // Streaming interval in seconds
-    streamPodMetrics(producer, intervalSeconds);
+    streamPodMetrics(producer, 10);
 
+    curl_global_cleanup();
     return 0;
 }
-

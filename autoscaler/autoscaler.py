@@ -142,4 +142,3 @@ def listen_for_predictions():
 if __name__ == "__main__":
     print("✅ Autoscaler running...")
     listen_for_predictions()
-

@@ -3,6 +3,16 @@ project(fetch_pod_metrics_project)
 
 set(CMAKE_CXX_STANDARD 20)
 
+include(FetchContent)
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG        v3.11.2   
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+find_package(CURL REQUIRED)
+
 # Include directories for the project
 include_directories(
     "/usr/include"
@@ -29,7 +39,9 @@ target_link_libraries(fetch_pod_metrics
     PRIVATE
     producer
     constants
+    nlohmann_json::nlohmann_json
     rdkafka++  # C++ wrapper for Kafka (MUST come first)
     rdkafka    # Core C library for Kafka
     pthread ssl crypto z curl  # Required dependencies for system and Kafka
+    CURL::libcurl
 )
