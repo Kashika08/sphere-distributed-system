@@ -13,6 +13,7 @@ The Sphere Distributed System is designed to demonstrate microservices architect
 -   Minikube
 -   Helm 3
 -   Git
+-   Python3
 
 ## Technologies
 - C++
@@ -53,7 +54,9 @@ This will deploy the Sock Shop microservices
 
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 	helm repo update
-	helm install prometheus prometheus-community/kube-prometheus-stack -f deployments/prometheus/values.yaml
+	helm install prometheus prometheus-community/kube-prometheus-stack -f data-collection/prometheus-values.yaml
+ 	helm upgrade prometheus prometheus-community/kube-prometheus-stack -n monitoring -f prometheus-values.yaml
+  	kubectl rollout restart statefulset prometheus-prometheus-kube-prometheus-prometheus -n monitoring
 
 ## Step 5: Deploy Redis Cluster
     docker run -d --name redis-server -p 6379:6379 redis
@@ -78,7 +81,7 @@ locust -f locustfile.py --host=http://192.168.49.2:30001
 ### Monitor System Performance
 
 	kubectl port-forward svc/prometheus-operated 9090:9090 -n sock-shop
-    Access Prometheus at [http://localhost:9090](http://localhost:9090/) to monitor system performance.
+	Access Prometheus at [http://localhost:9090](http://localhost:9090/) to monitor system performance.
 
 ## Step 9: Data Collection
 
@@ -107,7 +110,7 @@ docker run --rm -it   -v "$(pwd)/../ml_data.log:/app/ml_data.log"   -v "$(pwd)/.
 
 ### Predictions Producer (Producer, topic :: predictions)
 ```bash
-cd data-handling/ml-engine/metrics-consumer
+cd data-handling/ml-engine/predictions-producer
 mkdir build
 bash build.sh
 ```
