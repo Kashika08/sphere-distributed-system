@@ -7,61 +7,13 @@ This repository contains a distributed system implementation that integrates Kaf
 
 The Sphere Distributed System is designed to demonstrate microservices architecture, distributed data processing, and machine learning capabilities within a Kubernetes environment. It uses the Sock Shop microservices application as a benchmark to evaluate system performance and scalability.
 
-## Team Responsibilities
-
-## Shubh (snisar)
-
--   **Kafka Integration**: Setup and configuration of Kafka messaging system
-    
--   **Pod Metrics Collection**: Implementation of scripts to fetch pod metrics
-    
--   **Load Testing**: Locust script development for performance testing
-    
--   **Autoscaling**: HPA (Horizontal Pod Autoscaler) configuration
-    
--   **Helper Scripts**: Development of bash scripts to automate tasks
-    
--   **Version Control**: Git operations and pull request management
-    
-
-## Rajat (rchanda3)
-
--   **Load Testing**: Locust test execution and reporting
-    
--   **Redis**: Setup and configuration of Redis clusters
-    
--   **Autoscaling**: Development of custom autoscaler scripts
-    
--   **Monitoring**: Prometheus monitoring stack deployment and configuration
-    
--   **Version Control**: Git operations and pull request management
-    
-
-## Kashika (kmalick)
-
--   **Environment Setup**: Minikube environment configuration
-    
--   **Benchmark Application**: Sock Shop microservices deployment and configuration
-    
--   **Machine Learning**: Online retraining ML models development and integration
-    
--   **Metrics Collection**: Pod metrics collection and analysis
-    
--   **Version Control**: Git operations and pull request management
-    
-
 ## System Setup Instructions
-
 ## Prerequisites
 
 -   Docker
-    
 -   Kubernetes CLI (kubectl)
-    
 -   Minikube
-    
 -   Helm 3
-    
 -   Git
 
 ## Technologies
@@ -101,13 +53,11 @@ This will deploy the Sock Shop microservices
 
 ## Step 4: Install Prometheus Monitoring Stack
 
-
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 	helm repo update
 	helm install prometheus prometheus-community/kube-prometheus-stack -f deployments/prometheus/values.yaml
 
 ## Step 5: Deploy Redis Cluster
-
 
 ## Step 6: Setup Kafka
 	docker pull apache/kafka:3.9.0
