@@ -1,0 +1,9 @@
+flask
+matplotlib
+numpy
+scikit-learn
+pandas
+tensorflow
+xgboost
+pywavelets
+statsmodels
