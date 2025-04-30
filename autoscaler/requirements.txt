@@ -1,8 +1,1 @@
-<<<<<<< HEAD
-Flask==2.2.5
 redis==5.0.1
-matplotlib>=3.7.0,<3.8.0
-pandas==2.2.1
-=======
-redis==5.0.1
->>>>>>> 0487cd4d44175f4a0b89a7aab252e6ebfa39850d
