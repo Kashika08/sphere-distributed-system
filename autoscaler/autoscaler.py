@@ -5,17 +5,20 @@ import json
 import math
 
 # --- Configuration ---
-HIGH_THRESHOLD = 80.0   # Scale up if per-replica load + buffer exceeds this
-LOW_THRESHOLD = 20.0    # Scale down if per-replica load - buffer drops below this
-CPU_BUFFER = 10.0       # Safety margin to avoid flapping
+HIGH_THRESHOLD = 80.0
+LOW_THRESHOLD = 20.0
+CPU_BUFFER = 10.0
 
 MAX_REPLICAS = 4
 MIN_REPLICAS = 1
+DOWNSCALE_COOLDOWN_SECONDS = 60  # Only for downscale
 
 REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 NAMESPACE = 'sock-shop'
 DEPLOYMENT = 'front-end'
+
+DOWNSCALE_COOLDOWN_KEY = f'downscale_triggered:{DEPLOYMENT}'
 
 RED = "\033[91m"
 GREEN = "\033[92m"
@@ -65,6 +68,9 @@ def loud_log(message, color=GREEN):
     print(f"{BOLD}{color}{message}{RESET}")
     print(f"{'='*50}\n")
 
+def is_downscale_in_cooldown():
+    return rdb.exists(DOWNSCALE_COOLDOWN_KEY)
+
 # --- Main Scaling Logic ---
 def process_prediction(key):
     entry = rdb.get(key)
@@ -107,8 +113,12 @@ def process_prediction(key):
         proposed_replicas = max(current_replicas - 1, MIN_REPLICAS)
 
         if proposed_replicas < current_replicas:
-            loud_log(f"🔽 SCALING DOWN to {proposed_replicas} replicas!", color=YELLOW)
-            scale_replicas(proposed_replicas)
+            if is_downscale_in_cooldown():
+                print("⏳ Downscale cooldown active")
+            else:
+                loud_log(f"🔽 SCALING DOWN to {proposed_replicas} replicas!", color=YELLOW)
+                # scale_replicas(proposed_replicas)
+                rdb.setex(DOWNSCALE_COOLDOWN_KEY, DOWNSCALE_COOLDOWN_SECONDS, 1)
         else:
             print("🟰 Already at or below target")
 
