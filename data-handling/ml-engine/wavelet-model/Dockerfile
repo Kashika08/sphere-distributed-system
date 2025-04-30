@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Copy only the necessary Python files into the container
 COPY incremental_predictor.py /app
-COPY wavelet_autoscaler.h5 /app
+# COPY wavelet_autoscaler.h5 /app
 COPY requirements.txt /app
 
 # Install Python dependencies
